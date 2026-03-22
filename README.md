@@ -1,73 +1,66 @@
-# Welcome to your Lovable project
+# SkillSwap Community
 
-## Project info
+SkillSwap Community is a web platform that connects people who want to **learn new skills** with those who are willing to **teach and share their expertise**. It promotes peer-to-peer learning through collaboration and knowledge exchange.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+---
 
-## How can I edit this code?
+## 🌐 About the Website
 
-There are several ways of editing your application.
+The platform allows users to:
 
-**Use Lovable**
+- Sign in securely using Google authentication  
+- Create and manage personal profiles  
+- List skills they can teach  
+- Browse and explore skills offered by others  
+- Connect with users for mutual learning  
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+SkillSwap focuses on building a community where learning is **accessible, collaborative, and skill-driven** rather than course-based.
 
-Changes made via Lovable will be committed automatically to this repo.
+---
 
-**Use your preferred IDE**
+## 🧠 How It Works
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. Users sign in using their Google account  
+2. They set up a profile and add their skills  
+3. Other users can discover these skills  
+4. Users connect and exchange knowledge  
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+---
 
-Follow these steps:
+## 🎯 Purpose
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+- Encourage skill-sharing within a community  
+- Make learning more accessible  
+- Help users grow through collaboration  
+- Reduce dependency on traditional learning platforms  
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+---
 
-# Step 3: Install the necessary dependencies.
-npm i
+## 🛠️ Tech Stack
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+- Frontend: React + Vite  
+- Backend: Supabase (Authentication + Database)  
+- Deployment: Vercel  
+
+---
+
+## ⚙️ Setup Instructions
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/aarthireddyyy/skillswap-community.git
+cd skillswap-community
+2. Install dependencies
+npm install
 npm run dev
-```
+🌍 Deployment
 
-**Edit a file directly in GitHub**
+The application is deployed using Vercel. Ensure environment variables are properly configured in the deployment environment.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+🔐 Authentication
 
-**Use GitHub Codespaces**
+Uses Supabase Google OAuth for secure login. Proper configuration in Supabase and Google Cloud Console is required.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+📌 Summary
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+SkillSwap Community acts as a bridge between learners and mentors, enabling users to share knowledge, discover new skills, and collaborate effectively in a community-driven environment.

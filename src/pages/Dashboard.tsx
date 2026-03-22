@@ -14,23 +14,82 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton';
 import { useAuthStore } from '@/store/authStore';
 import { useSwapsStore } from '@/store/swapsStore';
-import { mockUsers, mockNotifications } from '@/lib/mockData';
+import { useNotificationStore } from '@/store/notificationStore';
+import { supabase } from '@/lib/supabase';
+import { User, Notification } from '@/types';
 import { cn } from '@/lib/utils';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
-  const { getPendingCount, initializeSwaps } = useSwapsStore();
+  const { user, refreshUser } = useAuthStore();
+  const { getPendingCount, fetchSwaps, sendRequest } = useSwapsStore();
+  const { notifications, fetchNotifications, markAsRead, unreadCount } = useNotificationStore();
   const [isLoading, setIsLoading] = useState(true);
+  const [recommendedMatches, setRecommendedMatches] = useState<User[]>([]);
 
   useEffect(() => {
-    initializeSwaps();
-    // Simulate loading
-    const timer = setTimeout(() => setIsLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, [initializeSwaps]);
+    const load = async () => {
+      if (user?.id) {
+        // Refresh user data to get latest skills and stats
+        await refreshUser();
+        await fetchSwaps(user.id);
+        await fetchNotifications(user.id);
+        // Fetch a few other profiles as recommendations
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', user.id)
+          .limit(4);
+        if (data) {
+          setRecommendedMatches(
+            data.map((p: Record<string, unknown>) => ({
+              id: p.id as string,
+              name: (p.name as string) || 'User',
+              email: '',
+              location: { city: '', country: '' },
+              rating: 5.0,
+              reviewCount: 0,
+              skillsTeaching: [],
+              skillsLearning: [],
+              completedSwaps: 0,
+              joinedAt: (p.created_at as string) || '',
+              isOnline: false,
+            }))
+          );
+        }
+      }
+      setIsLoading(false);
+    };
+    load();
+  }, [user?.id, fetchSwaps, refreshUser, fetchNotifications]);
 
   const pendingCount = user ? getPendingCount(user.id) : 0;
+  const notifCount = unreadCount();
+
+  const handleRequestSwap = async (matchUser: User) => {
+    if (!user) return;
+
+    const requesterSkill = user.skillsTeaching?.[0]?.name || 'General Skill';
+    const providerSkill = matchUser.skillsTeaching?.[0]?.name || 'General Skill';
+
+    const result = await sendRequest({
+      requesterId: user.id,
+      providerId: matchUser.id,
+      requesterSkill,
+      providerSkill,
+      matchType: 'one_way',
+      message: `Hi ${matchUser.name}, I'd like to swap skills with you!`,
+    });
+
+    if (result) {
+      navigate('/swaps');
+    }
+  };
+
+  const handleNotificationClick = (notif: any) => {
+    markAsRead(notif.id);
+    navigate('/swaps');
+  };
 
   const getInitials = (name: string) => {
     return name
@@ -40,11 +99,6 @@ export default function Dashboard() {
       .toUpperCase()
       .slice(0, 2);
   };
-
-  // Get recommended matches (users who want to learn what the current user teaches)
-  const recommendedMatches = mockUsers
-    .filter(u => u.id !== user?.id)
-    .slice(0, 4);
 
   const quickActions = [
     {
@@ -78,8 +132,6 @@ export default function Dashboard() {
     },
   ];
 
-  const notifications = mockNotifications.slice(0, 5);
-
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'swap_accepted':
@@ -100,14 +152,18 @@ export default function Dashboard() {
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
-    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
     
-    if (diffInHours < 1) return 'Just now';
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
     if (diffInHours < 24) return `${diffInHours}h ago`;
-    const diffInDays = Math.floor(diffInHours / 24);
     if (diffInDays === 1) return '1d ago';
     if (diffInDays < 7) return `${diffInDays}d ago`;
-    return format(date, 'MMM d');
+    if (diffInDays < 30) return `${Math.floor(diffInDays / 7)}w ago`;
+    return format(date, 'MMM d, yyyy');
   };
 
   if (isLoading) {
@@ -239,7 +295,7 @@ export default function Dashboard() {
                     key={matchUser.id}
                     user={matchUser}
                     onViewProfile={u => navigate(`/profile/${u.id}`)}
-                    onRequestSwap={u => navigate(`/swaps?request=${u.id}`)}
+                    onRequestSwap={handleRequestSwap}
                     compact
                   />
                 ))}
@@ -263,37 +319,38 @@ export default function Dashboard() {
           <section>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Notifications</h2>
-              <Badge variant="secondary">{notifications.filter(n => !n.read).length} new</Badge>
+              <Badge variant="secondary">{notifCount} new</Badge>
             </div>
 
             <Card>
               <CardContent className="p-0">
                 {notifications.length > 0 ? (
                   <div className="divide-y">
-                    {notifications.map(notification => (
+                    {notifications.slice(0, 5).map(notif => (
                       <div
-                        key={notification.id}
+                        key={notif.id}
                         className={cn(
                           'flex items-start gap-3 p-4 hover:bg-muted/50 transition-colors cursor-pointer',
-                          !notification.read && 'bg-primary/5'
+                          !notif.read && 'bg-primary/5'
                         )}
+                        onClick={() => handleNotificationClick(notif)}
                       >
                         <div className="mt-0.5">
-                          {getNotificationIcon(notification.type)}
+                          {getNotificationIcon(notif.type)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className={cn(
                             'text-sm',
-                            !notification.read && 'font-medium'
+                            !notif.read && 'font-medium'
                           )}>
-                            {notification.message}
+                            {notif.message}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            {formatTimeAgo(notification.createdAt)}
+                            {formatTimeAgo(notif.createdAt)}
                           </p>
                         </div>
-                        {!notification.read && (
+                        {!notif.read && (
                           <div className="w-2 h-2 rounded-full bg-primary mt-2" />
                         )}
                       </div>

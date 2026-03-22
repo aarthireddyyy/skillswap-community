@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { Check, X, Clock, MessageSquare, ArrowRight, Inbox } from 'lucide-react';
+import { Check, X, Clock, MessageSquare, ArrowRight, Inbox, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -14,7 +14,7 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/authStore';
 import { useSwapsStore } from '@/store/swapsStore';
-import { mockUsers } from '@/lib/mockData';
+import { supabase } from '@/lib/supabase';
 import { Swap, User } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -27,15 +27,66 @@ export default function Swaps() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuthStore();
-  const { swaps, initializeSwaps, acceptSwap, rejectSwap, completeSwap } = useSwapsStore();
+  const { swaps, fetchSwaps, acceptSwap, rejectSwap, completeSwap } = useSwapsStore();
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('incoming');
+  const [profilesMap, setProfilesMap] = useState<Record<string, User>>({});
 
   useEffect(() => {
-    initializeSwaps();
-    const timer = setTimeout(() => setIsLoading(false), 600);
-    return () => clearTimeout(timer);
-  }, [initializeSwaps]);
+    console.log("=== SWAPS PAGE LOADED ===");
+    console.log("Current user:", user);
+    
+    if (!user?.id) {
+      console.log("No user ID, skipping fetch");
+      return;
+    }
+    
+    const load = async () => {
+      console.log("Calling fetchSwaps for user:", user.id);
+      await fetchSwaps(user.id);
+      
+      // Fetch profiles for all users referenced in swaps
+      const { swaps: currentSwaps } = useSwapsStore.getState();
+      console.log("Swaps after fetch:", currentSwaps);
+      
+      const userIds = new Set<string>();
+      currentSwaps.forEach((s) => {
+        userIds.add(s.requesterId);
+        userIds.add(s.providerId);
+      });
+      
+      console.log("Fetching profiles for user IDs:", Array.from(userIds));
+      
+      if (userIds.size > 0) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', Array.from(userIds));
+        if (data) {
+          const map: Record<string, User> = {};
+          data.forEach((p: Record<string, unknown>) => {
+            map[p.id as string] = {
+              id: p.id as string,
+              name: (p.name as string) || 'User',
+              email: '',
+              location: { city: '', country: '' },
+              rating: 5.0,
+              reviewCount: 0,
+              skillsTeaching: [],
+              skillsLearning: [],
+              completedSwaps: 0,
+              joinedAt: (p.created_at as string) || '',
+              isOnline: false,
+            };
+          });
+          console.log("Profiles map:", map);
+          setProfilesMap(map);
+        }
+      }
+      setIsLoading(false);
+    };
+    load();
+  }, [user?.id, fetchSwaps]);
 
   const getInitials = (name: string) => {
     return name
@@ -46,23 +97,31 @@ export default function Swaps() {
       .slice(0, 2);
   };
 
-  // Enrich swaps with user data
+  // Enrich swaps with user data from profiles
   const enrichedSwaps = useMemo((): SwapWithUsers[] => {
     return swaps.map(swap => ({
       ...swap,
-      requester: mockUsers.find(u => u.id === swap.requesterId),
-      provider: mockUsers.find(u => u.id === swap.providerId),
+      requester: profilesMap[swap.requesterId],
+      provider: profilesMap[swap.providerId],
     }));
-  }, [swaps]);
+  }, [swaps, profilesMap]);
 
   // Filter swaps by type
+  console.log("=== FILTERING SWAPS ===");
+  console.log("Current user ID:", user?.id);
+  console.log("All enriched swaps:", enrichedSwaps);
+  
   const incomingSwaps = enrichedSwaps.filter(
     swap => swap.providerId === user?.id && swap.status === 'pending'
   );
+  console.log("Incoming swaps (receiver_id = current user):", incomingSwaps);
+  console.log("Incoming count:", incomingSwaps.length);
 
   const outgoingSwaps = enrichedSwaps.filter(
     swap => swap.requesterId === user?.id && swap.status === 'pending'
   );
+  console.log("Outgoing swaps (requester_id = current user):", outgoingSwaps);
+  console.log("Outgoing count:", outgoingSwaps.length);
 
   const activeSwaps = enrichedSwaps.filter(
     swap =>
@@ -76,24 +135,24 @@ export default function Swaps() {
       ['completed', 'rejected', 'cancelled'].includes(swap.status)
   );
 
-  const handleAccept = (swapId: string) => {
-    acceptSwap(swapId);
+  const handleAccept = async (swapId: string) => {
+    await acceptSwap(swapId);
     toast({
       title: 'Swap accepted!',
       description: 'The requester has been notified. Time to start learning!',
     });
   };
 
-  const handleReject = (swapId: string) => {
-    rejectSwap(swapId);
+  const handleReject = async (swapId: string) => {
+    await rejectSwap(swapId);
     toast({
       title: 'Swap declined',
       description: 'The request has been declined.',
     });
   };
 
-  const handleComplete = (swapId: string) => {
-    completeSwap(swapId);
+  const handleComplete = async (swapId: string) => {
+    await completeSwap(swapId);
     toast({
       title: 'Swap completed!',
       description: 'Great job! Consider leaving a review.',
@@ -137,7 +196,15 @@ export default function Swaps() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-semibold truncate">{otherUser?.name || 'Unknown User'}</h4>
-                {getStatusBadge(swap.status)}
+                <div className="flex items-center gap-2">
+                  {swap.matchType === 'mutual' && (
+                    <Badge className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Perfect Match
+                    </Badge>
+                  )}
+                  {getStatusBadge(swap.status)}
+                </div>
               </div>
 
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
@@ -241,7 +308,7 @@ export default function Swaps() {
             <TabsTrigger value="incoming" className="relative">
               Incoming
               {incomingSwaps.length > 0 && (
-                <Badge variant="destructive" className="ml-2 h-5 w-5 p-0 text-xs">
+                <Badge variant="destructive" className="ml-2 h-5 min-w-[20px] px-1 flex items-center justify-center text-xs">
                   {incomingSwaps.length}
                 </Badge>
               )}
@@ -249,7 +316,7 @@ export default function Swaps() {
             <TabsTrigger value="outgoing">
               Outgoing
               {outgoingSwaps.length > 0 && (
-                <Badge variant="secondary" className="ml-2 h-5 w-5 p-0 text-xs">
+                <Badge variant="secondary" className="ml-2 h-5 min-w-[20px] px-1 flex items-center justify-center text-xs">
                   {outgoingSwaps.length}
                 </Badge>
               )}
@@ -257,7 +324,7 @@ export default function Swaps() {
             <TabsTrigger value="active">
               Active
               {activeSwaps.length > 0 && (
-                <Badge className="ml-2 h-5 w-5 p-0 text-xs bg-success">
+                <Badge className="ml-2 h-5 min-w-[20px] px-1 flex items-center justify-center text-xs bg-success">
                   {activeSwaps.length}
                 </Badge>
               )}

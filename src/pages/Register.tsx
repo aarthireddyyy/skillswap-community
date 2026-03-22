@@ -155,11 +155,23 @@ export default function Register() {
     }
   };
 
-  const handleSocialLogin = (provider: string) => {
-    toast({
-      title: 'Coming soon!',
-      description: `${provider} registration will be available soon.`,
-    });
+  const handleSocialLogin = async (provider: string) => {
+    if (provider === 'Google') {
+      const { loginWithGoogle } = useAuthStore.getState();
+      const result = await loginWithGoogle();
+      if (!result.success) {
+        toast({
+          title: 'Google registration failed',
+          description: result.error || 'Something went wrong.',
+          variant: 'destructive',
+        });
+      }
+    } else {
+      toast({
+        title: 'Coming soon!',
+        description: `${provider} registration will be available soon.`,
+      });
+    }
   };
 
   return (

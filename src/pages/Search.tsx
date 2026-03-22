@@ -12,24 +12,88 @@ import { SearchBar } from '@/components/common/SearchBar';
 import { UserCard } from '@/components/common/UserCard';
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton';
 import { EmptyState } from '@/components/common/EmptyState';
-import { mockUsers } from '@/lib/mockData';
-import { SkillCategory } from '@/types';
+import { useAuthStore } from '@/store/authStore';
+import { useSwapsStore } from '@/store/swapsStore';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
+import { User, Skill, SkillCategory } from '@/types';
 
 const categories: SkillCategory[] = ['Design', 'Code', 'Languages', 'Music', 'Cooking', 'Fitness', 'Arts', 'Business'];
 
 export default function SearchPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { user: currentUser } = useAuthStore();
+  const { sendRequest } = useSwapsStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   
   const query = searchParams.get('q') || '';
   const category = searchParams.get('category') || 'all';
   const sortBy = searchParams.get('sort') || 'rating';
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 600);
-    return () => clearTimeout(timer);
+    const fetchUsers = async () => {
+      setIsLoading(true);
+      // Fetch profiles
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      // Fetch skills
+      const { data: skills } = await supabase.from('skills').select('*');
+
+      if (profiles) {
+        const teachingSkillsByUser: Record<string, any[]> = {};
+        const learningSkillsByUser: Record<string, any[]> = {};
+        
+        (skills || []).forEach((s: Record<string, unknown>) => {
+          const uid = s.user_id as string;
+          const skillType = (s.type as string) || 'teaching'; // Default to teaching if no type
+          
+          const mappedSkill = {
+            id: s.id as string,
+            name: s.skill_name as string,
+            category: s.category as SkillCategory,
+            proficiency: s.proficiency as Skill['proficiency'],
+            description: (s.description as string) || '',
+            userId: uid,
+            type: skillType as 'teaching' | 'learning',
+          };
+
+          if (skillType === 'teaching') {
+            if (!teachingSkillsByUser[uid]) teachingSkillsByUser[uid] = [];
+            teachingSkillsByUser[uid].push(mappedSkill);
+          } else if (skillType === 'learning') {
+            if (!learningSkillsByUser[uid]) learningSkillsByUser[uid] = [];
+            learningSkillsByUser[uid].push(mappedSkill);
+          }
+        });
+
+        console.log("SEARCH: Teaching skills by user:", teachingSkillsByUser);
+        console.log("SEARCH: Learning skills by user:", learningSkillsByUser);
+
+        const users: User[] = profiles.map((p: Record<string, unknown>) => ({
+          id: p.id as string,
+          name: (p.name as string) || 'User',
+          email: '',
+          location: { city: '', country: '' },
+          rating: 5.0,
+          reviewCount: 0,
+          skillsTeaching: teachingSkillsByUser[p.id as string] || [],
+          skillsLearning: learningSkillsByUser[p.id as string] || [],
+          completedSwaps: 0,
+          joinedAt: (p.created_at as string) || '',
+          isOnline: false,
+        }));
+        
+        console.log("SEARCH: Total users loaded:", users.length);
+        console.log("SEARCH: Users with teaching skills:", users.filter(u => u.skillsTeaching.length > 0).length);
+        
+        setAllUsers(users);
+      }
+      setIsLoading(false);
+    };
+    fetchUsers();
   }, []);
 
   const handleSearch = (newQuery: string) => {
@@ -62,7 +126,12 @@ export default function SearchPage() {
   };
 
   const filteredUsers = useMemo(() => {
-    let users = [...mockUsers];
+    let users = [...allUsers];
+
+    // Filter out current user (don't show your own profile in search)
+    if (currentUser?.id) {
+      users = users.filter(user => user.id !== currentUser.id);
+    }
 
     // Filter by search query
     if (query) {
@@ -100,7 +169,100 @@ export default function SearchPage() {
     }
 
     return users;
-  }, [query, category, sortBy]);
+  }, [query, category, sortBy, allUsers, currentUser?.id]);
+
+  const handleRequestSwap = async (targetUser: User) => {
+    console.log("=== SEARCH PAGE: REQUEST SWAP CLICKED ===");
+    console.log("Current user:", currentUser);
+    console.log("Target user:", targetUser);
+    console.log("Current user ID:", currentUser?.id);
+    console.log("Target user ID:", targetUser?.id);
+
+    if (!currentUser) {
+      console.log("ERROR: No current user");
+      toast({
+        title: 'Please login',
+        description: 'You need to be logged in to send swap requests',
+        variant: 'destructive',
+      });
+      navigate('/login');
+      return;
+    }
+
+    if (!targetUser) {
+      console.log("ERROR: No target user");
+      return;
+    }
+
+    // Detect mutual match
+    const userTeach = currentUser.skillsTeaching?.map(s => s.name) || [];
+    const userLearn = currentUser.skillsLearning?.map(s => s.name) || [];
+    const targetTeach = targetUser.skillsTeaching?.map(s => s.name) || [];
+    const targetLearn = targetUser.skillsLearning?.map(s => s.name) || [];
+
+    console.log("USER TEACH:", userTeach);
+    console.log("USER LEARN:", userLearn);
+    console.log("TARGET TEACH:", targetTeach);
+    console.log("TARGET LEARN:", targetLearn);
+
+    const isMutualMatch =
+      userLearn.some(skill => targetTeach.includes(skill)) &&
+      targetLearn.some(skill => userTeach.includes(skill));
+
+    console.log("IS MUTUAL MATCH:", isMutualMatch);
+    console.log("MATCH TYPE:", isMutualMatch ? 'mutual' : 'one_way');
+
+    const requesterSkill = currentUser.skillsTeaching?.[0]?.name || 'General Skill';
+    const providerSkill = targetUser.skillsTeaching?.[0]?.name || 'General Skill';
+
+    console.log("Requester skill:", requesterSkill);
+    console.log("Provider skill:", providerSkill);
+
+    const swapData = {
+      requesterId: currentUser.id,
+      providerId: targetUser.id,
+      requesterSkill: requesterSkill,
+      providerSkill: providerSkill,
+      matchType: isMutualMatch ? 'mutual' as const : 'one_way' as const,
+      message: `Hi ${targetUser.name}, I'd like to swap skills with you!${isMutualMatch ? ' This looks like a perfect match!' : ''}`,
+    };
+
+    console.log("=== ABOUT TO SEND REQUEST ===");
+    console.log("Swap data:", swapData);
+
+    try {
+      const result = await sendRequest(swapData);
+
+      console.log("=== REQUEST COMPLETED ===");
+      console.log("Result:", result);
+
+      if (result) {
+        console.log("SUCCESS: Swap created with ID:", result.id);
+        toast({
+          title: isMutualMatch ? '🎉 Perfect Match!' : 'Swap request sent!',
+          description: isMutualMatch 
+            ? `You both want to learn from each other! Request sent to ${targetUser.name}.`
+            : `Your request has been sent to ${targetUser.name}.`,
+        });
+        navigate('/swaps');
+      } else {
+        console.log("ERROR: sendRequest returned null");
+        toast({
+          title: 'Failed to send request',
+          description: 'Check console for errors',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('=== UNEXPECTED ERROR ===');
+      console.error('Error:', error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const hasFilters = query || (category && category !== 'all');
 
@@ -246,7 +408,7 @@ export default function SearchPage() {
                 user={user}
                 compact={viewMode === 'list'}
                 onViewProfile={u => navigate(`/profile/${u.id}`)}
-                onRequestSwap={u => navigate(`/swaps?request=${u.id}`)}
+                onRequestSwap={handleRequestSwap}
               />
             ))}
           </div>

@@ -12,6 +12,8 @@ export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Expert';
 
 export type SwapStatus = 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
 
+export type MatchType = 'mutual' | 'one_way';
+
 export interface User {
   id: string;
   name: string;
@@ -25,7 +27,7 @@ export interface User {
   rating: number;
   reviewCount: number;
   skillsTeaching: Skill[];
-  skillsLearning: string[];
+  skillsLearning: Skill[];
   completedSwaps: number;
   joinedAt: string;
   isOnline?: boolean;
@@ -39,6 +41,7 @@ export interface Skill {
   proficiency: ProficiencyLevel;
   description: string;
   userId: string;
+  type?: 'teaching' | 'learning';
 }
 
 export interface Swap {
@@ -48,6 +51,7 @@ export interface Swap {
   requesterSkill: string;
   providerSkill: string;
   status: SwapStatus;
+  matchType?: MatchType;
   message?: string;
   createdAt: string;
   updatedAt: string;

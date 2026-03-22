@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { MapPin, Star, Calendar, CheckCircle, Mail, ArrowLeft } from 'lucide-react';
+import { MapPin, Star, Calendar, CheckCircle, Mail, ArrowLeft, Sparkles, Award } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,209 +15,416 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton';
 import { EmptyState } from '@/components/common/EmptyState';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/authStore';
-import { mockUsers, mockReviews } from '@/lib/mockData';
-import { User, Review } from '@/types';
+import { useSwapsStore } from '@/store/swapsStore';
+import { supabase } from '@/lib/supabase';
+import { User } from '@/types';
 
 export default function Profile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user: currentUser } = useAuthStore();
+  const { sendRequest } = useSwapsStore();
+
   const [isLoading, setIsLoading] = useState(true);
+  const [isSendingRequest, setIsSendingRequest] = useState(false);
   const [profileUser, setProfileUser] = useState<User | null>(null);
-  const [reviews, setReviews] = useState<Review[]>([]);
+  const [isMutualMatch, setIsMutualMatch] = useState(false);
+  const [completedSwaps, setCompletedSwaps] = useState<any[]>([]);
 
   const isOwnProfile = !id || id === currentUser?.id;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const load = async () => {
+      console.log("=== PROFILE PAGE LOADING ===");
+      console.log("Profile ID:", id);
+      console.log("Current user:", currentUser);
+      console.log("Is own profile:", isOwnProfile);
+
       if (isOwnProfile) {
-        setProfileUser(currentUser);
+        console.log("Loading own profile");
+        if (currentUser?.id) {
+          // Fetch ALL skills first (without type filter)
+          const { data: allSkills } = await supabase
+            .from('skills')
+            .select('*')
+            .eq('user_id', currentUser.id);
+
+          console.log("Own skills fetched (all):", allSkills);
+
+          // Separate by type (default to teaching if no type)
+          const teachingSkills = (allSkills || []).filter((s: any) => 
+            !s.type || s.type === 'teaching'
+          );
+          const learningSkills = (allSkills || []).filter((s: any) => 
+            s.type === 'learning'
+          );
+
+          console.log("Teaching skills:", teachingSkills);
+          console.log("Learning skills:", learningSkills);
+
+          const mappedTeaching = teachingSkills.map((s: any) => ({
+            id: s.id,
+            name: s.skill_name,
+            category: s.category,
+            proficiency: s.proficiency,
+            description: s.description || '',
+            userId: s.user_id,
+            type: 'teaching' as const,
+          }));
+
+          const mappedLearning = learningSkills.map((s: any) => ({
+            id: s.id,
+            name: s.skill_name,
+            category: s.category,
+            proficiency: s.proficiency,
+            description: s.description || '',
+            userId: s.user_id,
+            type: 'learning' as const,
+          }));
+
+          console.log("Mapped teaching:", mappedTeaching);
+          console.log("Mapped learning:", mappedLearning);
+
+          setProfileUser({
+            ...currentUser,
+            skillsTeaching: mappedTeaching,
+            skillsLearning: mappedLearning,
+          });
+        } else {
+          setProfileUser(currentUser);
+        }
       } else {
-        const foundUser = mockUsers.find(u => u.id === id);
-        setProfileUser(foundUser || null);
+        console.log("Loading other user profile");
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+        console.log("Profile fetched:", profile);
+
+        if (profile) {
+          // Fetch ALL skills first (without type filter)
+          const { data: allSkills } = await supabase
+            .from('skills')
+            .select('*')
+            .eq('user_id', id);
+
+          console.log("User skills fetched (all):", allSkills);
+
+          // Separate by type (default to teaching if no type)
+          const teachingSkills = (allSkills || []).filter((s: any) => 
+            !s.type || s.type === 'teaching'
+          );
+          const learningSkills = (allSkills || []).filter((s: any) => 
+            s.type === 'learning'
+          );
+
+          console.log("Teaching skills:", teachingSkills);
+          console.log("Learning skills:", learningSkills);
+
+          const mappedTeaching = teachingSkills.map((s: any) => ({
+            id: s.id,
+            name: s.skill_name,
+            category: s.category,
+            proficiency: s.proficiency,
+            description: s.description || '',
+            userId: s.user_id,
+            type: 'teaching' as const,
+          }));
+
+          const mappedLearning = learningSkills.map((s: any) => ({
+            id: s.id,
+            name: s.skill_name,
+            category: s.category,
+            proficiency: s.proficiency,
+            description: s.description || '',
+            userId: s.user_id,
+            type: 'learning' as const,
+          }));
+
+          console.log("Mapped teaching:", mappedTeaching);
+          console.log("Mapped learning:", mappedLearning);
+
+          setProfileUser({
+            id: profile.id,
+            name: profile.name || 'User',
+            email: '',
+            location: { city: '', country: '' },
+            rating: 5,
+            reviewCount: 0,
+            skillsTeaching: mappedTeaching,
+            skillsLearning: mappedLearning,
+            completedSwaps: 0,
+            joinedAt: profile.created_at,
+            isOnline: false,
+          });
+
+          // Detect mutual match
+          if (currentUser) {
+            detectMutualMatch(currentUser, {
+              skillsTeaching: mappedTeaching,
+              skillsLearning: mappedLearning,
+            });
+          }
+        } else {
+          console.log("Profile not found");
+        }
       }
-      
-      // Get reviews for this user
-      const userReviews = mockReviews.filter(
-        r => r.revieweeId === (isOwnProfile ? currentUser?.id : id)
-      );
-      setReviews(userReviews);
-      
+
+      // Fetch completed swaps for this profile
+      const profileId = isOwnProfile ? currentUser?.id : id;
+      if (profileId) {
+        const { data: swapsData } = await supabase
+          .from('swaps')
+          .select('*')
+          .or(`requester_id.eq.${profileId},receiver_id.eq.${profileId}`)
+          .eq('status', 'completed')
+          .order('completed_at', { ascending: false })
+          .limit(5);
+
+        if (swapsData) {
+          // Fetch names for the other users in swaps
+          const otherUserIds = swapsData.map((s: any) => 
+            s.requester_id === profileId ? s.receiver_id : s.requester_id
+          );
+          
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', otherUserIds);
+
+          const profilesMap: Record<string, string> = {};
+          profiles?.forEach((p: any) => {
+            profilesMap[p.id] = p.name;
+          });
+
+          const enrichedSwaps = swapsData.map((s: any) => ({
+            id: s.id,
+            skill: s.skill_requested,
+            partnerName: profilesMap[s.requester_id === profileId ? s.receiver_id : s.requester_id] || 'Unknown',
+            completedAt: s.completed_at,
+          }));
+
+          setCompletedSwaps(enrichedSwaps);
+        }
+      }
+
       setIsLoading(false);
-    }, 600);
-    return () => clearTimeout(timer);
+    };
+
+    load();
   }, [id, currentUser, isOwnProfile]);
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+  const detectMutualMatch = (user: User, target: { skillsTeaching: any[], skillsLearning: any[] }) => {
+    const userTeach = user.skillsTeaching?.map(s => s.name) || [];
+    const userLearn = user.skillsLearning?.map(s => s.name) || [];
+    const targetTeach = target.skillsTeaching?.map(s => s.name) || [];
+    const targetLearn = target.skillsLearning?.map(s => s.name) || [];
+
+    console.log("=== MUTUAL MATCH DETECTION ===");
+    console.log("USER TEACH:", userTeach);
+    console.log("USER LEARN:", userLearn);
+    console.log("TARGET TEACH:", targetTeach);
+    console.log("TARGET LEARN:", targetLearn);
+
+    const match =
+      userLearn.some(skill => targetTeach.includes(skill)) &&
+      targetLearn.some(skill => userTeach.includes(skill));
+
+    console.log("IS MUTUAL MATCH:", match);
+    setIsMutualMatch(match);
   };
 
-  const handleRequestSwap = () => {
+  const getInitials = (name: string) =>
+    name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+
+  const handleRequestSwap = async () => {
+    console.log("BUTTON CLICKED");
+    console.log("SWAP FUNCTION STARTED");
+    console.log("currentUser:", currentUser);
+    console.log("profileUser:", profileUser);
+
     if (!currentUser) {
+      console.log("ERROR: No current user");
+      toast({
+        title: 'Error',
+        description: 'Please login first',
+        variant: 'destructive',
+      });
       navigate('/login');
       return;
     }
-    toast({
-      title: 'Swap request sent!',
-      description: `Your request has been sent to ${profileUser?.name}.`,
+
+    if (!profileUser) {
+      console.log("ERROR: No profile user");
+      toast({
+        title: 'Error',
+        description: 'User not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const requesterSkill = currentUser.skillsTeaching?.[0]?.name || 'General Skill';
+    const providerSkill = profileUser.skillsTeaching?.[0]?.name || 'General Skill';
+
+    console.log("SENDING DATA:", {
+      requesterId: currentUser?.id,
+      providerId: profileUser?.id,
+      requesterSkill,
+      providerSkill,
+      matchType: isMutualMatch ? 'mutual' : 'one_way'
     });
+
+    setIsSendingRequest(true);
+
+    try {
+      const result = await sendRequest({
+        requesterId: currentUser.id,
+        providerId: profileUser.id,
+        requesterSkill: requesterSkill,
+        providerSkill: providerSkill,
+        matchType: isMutualMatch ? 'mutual' : 'one_way',
+        message: `Hi ${profileUser.name}, I'd like to swap skills with you!${isMutualMatch ? ' This looks like a perfect match!' : ''}`,
+      });
+
+      console.log("SWAP REQUEST RESULT:", result);
+
+      if (result) {
+        console.log("SUCCESS: Swap created");
+        toast({
+          title: isMutualMatch ? '🎉 Perfect Match!' : 'Swap request sent!',
+          description: isMutualMatch 
+            ? `You both want to learn from each other! Request sent to ${profileUser.name}.`
+            : `Your request has been sent to ${profileUser.name}.`,
+        });
+        navigate('/swaps');
+      } else {
+        console.log("ERROR: sendRequest returned null");
+        toast({
+          title: 'Failed to send request',
+          description: 'Check console for errors',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('UNEXPECTED ERROR:', error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSendingRequest(false);
+    }
   };
 
-  const handleContact = () => {
-    toast({
-      title: 'Coming soon!',
-      description: 'Direct messaging will be available soon.',
-    });
-  };
+  if (isLoading) return <LoadingSkeleton variant="profile" />;
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container py-6 pb-24 md:pb-6">
-          <LoadingSkeleton variant="profile" />
-        </main>
-        <MobileNav />
-      </div>
-    );
-  }
-
-  if (!profileUser) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container py-6 pb-24 md:pb-6">
-          <EmptyState
-            title="User not found"
-            description="The user you're looking for doesn't exist or has been removed."
-            actionLabel="Go Back"
-            onAction={() => navigate(-1)}
-          />
-        </main>
-        <MobileNav />
-      </div>
-    );
-  }
+  if (!profileUser) return <EmptyState title="User not found" description="" />;
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
-      <main className="container py-6 pb-24 md:pb-6 animate-fade-in">
-        {/* Back Button */}
+
+      <main className="container py-6 pb-24 md:pb-6">
+
         {!isOwnProfile && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(-1)}
-            className="mb-4"
-          >
+          <Button variant="ghost" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
         )}
 
-        {/* Profile Header */}
-        <Card className="mb-6 overflow-hidden">
-          <div className="h-24 gradient-bg" />
-          <CardContent className="relative pt-0">
-            <div className="flex flex-col md:flex-row gap-4 -mt-12">
-              <Avatar className="h-24 w-24 border-4 border-card">
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+
+            <div className="flex items-center gap-4 flex-wrap">
+
+              <Avatar className="h-20 w-20">
                 <AvatarImage src={profileUser.avatar} />
-                <AvatarFallback className="gradient-bg text-primary-foreground text-2xl font-bold">
+                <AvatarFallback>
                   {getInitials(profileUser.name)}
                 </AvatarFallback>
               </Avatar>
-              
-              <div className="flex-1 pt-2 md:pt-8">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h1 className="text-2xl font-bold">{profileUser.name}</h1>
-                      {profileUser.isOnline && (
-                        <Badge variant="secondary" className="text-xs">
-                          <span className="w-2 h-2 rounded-full bg-success mr-1" />
-                          Online
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-muted-foreground mt-1">
-                      <div className="flex items-center gap-1">
-                        <MapPin className="h-4 w-4" />
-                        <span>{profileUser.location.city}, {profileUser.location.country}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
-                        <span>Joined {format(new Date(profileUser.joinedAt), 'MMMM yyyy')}</span>
-                      </div>
-                    </div>
-                  </div>
 
-                  {!isOwnProfile && (
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={handleContact}>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Contact
-                      </Button>
-                      <Button variant="gradient" onClick={handleRequestSwap}>
-                        Request Swap
-                      </Button>
-                    </div>
+              <div className="flex flex-col flex-1">
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-2xl font-semibold">
+                    {profileUser.name}
+                  </h2>
+
+                  {profileUser.isOnline && (
+                    <Badge>
+                      Online
+                    </Badge>
+                  )}
+
+                  {!isOwnProfile && isMutualMatch && (
+                    <Badge className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Perfect Match
+                    </Badge>
                   )}
                 </div>
 
-                {profileUser.bio && (
-                  <p className="text-muted-foreground mt-4">{profileUser.bio}</p>
-                )}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap mt-1">
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-4 w-4" />
+                    {profileUser.location.city || 'Unknown'}
+                  </span>
+
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    {profileUser.joinedAt &&
+                      `Joined ${format(new Date(profileUser.joinedAt), 'MMMM yyyy')}`}
+                  </span>
+                </div>
+
               </div>
+
+              {!isOwnProfile && (
+                <div className="flex gap-2">
+                  <Button variant="outline">
+                    <Mail className="h-4 w-4 mr-2" />
+                    Contact
+                  </Button>
+
+                  <Button 
+                    onClick={() => {
+                      console.log("BUTTON CLICKED");
+                      handleRequestSwap();
+                    }} 
+                    disabled={isSendingRequest}
+                    className={isMutualMatch ? "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600" : ""}
+                  >
+                    {isSendingRequest ? 'Sending...' : isMutualMatch ? '✨ Request Swap' : 'Request Swap'}
+                  </Button>
+                </div>
+              )}
+
             </div>
           </CardContent>
         </Card>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard
-            label="Skills Teaching"
-            value={profileUser.skillsTeaching.length}
-            icon={CheckCircle}
-            variant="primary"
-          />
-          <StatCard
-            label="Completed Swaps"
-            value={profileUser.completedSwaps}
-            icon={CheckCircle}
-            variant="success"
-          />
-          <StatCard
-            label="Rating"
-            value={`${profileUser.rating.toFixed(1)}★`}
-            icon={Star}
-            variant="warning"
-          />
-          <StatCard
-            label="Reviews"
-            value={profileUser.reviewCount}
-            icon={Star}
-            variant="default"
-          />
+          <StatCard label="Teaching" value={profileUser.skillsTeaching.length} icon={CheckCircle} variant="primary" />
+          <StatCard label="Learning" value={profileUser.skillsLearning.length} icon={CheckCircle} variant="success" />
+          <StatCard label="Rating" value={profileUser.rating} icon={Star} variant="warning" />
+          <StatCard label="Swaps" value={profileUser.completedSwaps} icon={CheckCircle} variant="default" />
         </div>
 
-        {/* Tabs */}
-        <Tabs defaultValue="skills">
+        <Tabs defaultValue="teaching">
           <TabsList>
-            <TabsTrigger value="skills">Skills ({profileUser.skillsTeaching.length})</TabsTrigger>
-            <TabsTrigger value="reviews">Reviews ({reviews.length})</TabsTrigger>
+            <TabsTrigger value="teaching">
+              Skills I Teach ({profileUser.skillsTeaching.length})
+            </TabsTrigger>
+            <TabsTrigger value="learning">
+              Skills I Want to Learn ({profileUser.skillsLearning.length})
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="skills" className="mt-6">
-            {profileUser.skillsTeaching.length > 0 ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <TabsContent value="teaching">
+            {profileUser.skillsTeaching && profileUser.skillsTeaching.length > 0 ? (
+              <div className="grid md:grid-cols-3 gap-4">
                 {profileUser.skillsTeaching.map(skill => (
                   <SkillCard key={skill.id} skill={skill} />
                 ))}
@@ -226,8 +433,8 @@ export default function Profile() {
               <Card>
                 <CardContent className="py-12">
                   <EmptyState
-                    title="No skills yet"
-                    description={isOwnProfile ? "Add skills to start matching with people!" : "This user hasn't added any skills yet."}
+                    title="No teaching skills yet"
+                    description={isOwnProfile ? "Add skills you can teach to start matching!" : "This user hasn't added teaching skills yet."}
                     actionLabel={isOwnProfile ? "Add Skill" : undefined}
                     onAction={isOwnProfile ? () => navigate('/skills') : undefined}
                   />
@@ -236,54 +443,62 @@ export default function Profile() {
             )}
           </TabsContent>
 
-          <TabsContent value="reviews" className="mt-6">
-            {reviews.length > 0 ? (
-              <div className="space-y-4">
-                {reviews.map(review => {
-                  const reviewer = mockUsers.find(u => u.id === review.reviewerId);
-                  return (
-                    <Card key={review.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start gap-4">
-                          <Avatar>
-                            <AvatarImage src={reviewer?.avatar} />
-                            <AvatarFallback className="gradient-bg text-primary-foreground text-xs">
-                              {reviewer?.name ? getInitials(reviewer.name) : '??'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-semibold">{reviewer?.name || 'Anonymous'}</h4>
-                              <div className="flex items-center gap-1 text-warning">
-                                {Array.from({ length: review.rating }).map((_, i) => (
-                                  <Star key={i} className="h-4 w-4 fill-current" />
-                                ))}
-                              </div>
-                            </div>
-                            <p className="text-muted-foreground mt-2">{review.comment}</p>
-                            <p className="text-xs text-muted-foreground mt-2">
-                              {format(new Date(review.createdAt), 'MMMM d, yyyy')}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+          <TabsContent value="learning">
+            {profileUser.skillsLearning && profileUser.skillsLearning.length > 0 ? (
+              <div className="grid md:grid-cols-3 gap-4">
+                {profileUser.skillsLearning.map(skill => (
+                  <SkillCard key={skill.id} skill={skill} />
+                ))}
               </div>
             ) : (
               <Card>
                 <CardContent className="py-12">
                   <EmptyState
-                    icon={Star}
-                    title="No reviews yet"
-                    description={isOwnProfile ? "Complete swaps to receive reviews from other users." : "This user hasn't received any reviews yet."}
+                    title="No learning skills yet"
+                    description={isOwnProfile ? "Add skills you want to learn to find matches!" : "This user hasn't added learning skills yet."}
+                    actionLabel={isOwnProfile ? "Add Skill" : undefined}
+                    onAction={isOwnProfile ? () => navigate('/skills') : undefined}
                   />
                 </CardContent>
               </Card>
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Completed Swaps Section */}
+        {completedSwaps.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <Award className="h-5 w-5 text-primary" />
+              Recent Completed Swaps
+            </h2>
+            <div className="grid gap-3">
+              {completedSwaps.map((swap) => (
+                <Card key={swap.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-success/10 flex items-center justify-center">
+                          <CheckCircle className="h-5 w-5 text-success" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{swap.skill}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Swapped with {swap.partnerName}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(swap.completedAt), 'MMM d, yyyy')}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
       </main>
 
       <MobileNav />

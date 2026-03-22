@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { categoryStats, platformStats, mockUsers, mockReviews } from '@/lib/mockData';
+import { useAuthStore } from '@/store/authStore';
 import { useRef, useState, useEffect } from 'react';
 import { SkillCategory } from '@/types';
 
@@ -35,6 +35,7 @@ const categoryGradients: Record<SkillCategory, string> = {
 
 function HeroSection() {
   const navigate = useNavigate();
+  const { isAuthenticated, initialized } = useAuthStore();
 
   const handleSearch = (query: string) => {
     navigate(`/search?q=${encodeURIComponent(query)}`);
@@ -64,20 +65,22 @@ function HeroSection() {
           Connect with passionate people and grow together.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-          <Button variant="hero" size="xl" asChild>
-            <Link to="/register">
-              Get Started
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Link>
-          </Button>
-          <Button variant="outline" size="xl" asChild>
-            <a href="#how-it-works">How It Works</a>
-          </Button>
-        </div>
+        {initialized && !isAuthenticated && (
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+            <Button variant="hero" size="xl" asChild>
+              <Link to="/register">
+                Get Started
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Link>
+            </Button>
+            <Button variant="outline" size="xl" asChild>
+              <a href="#how-it-works">How It Works</a>
+            </Button>
+          </div>
+        )}
 
         {/* Search Bar */}
-        <div className="max-w-2xl mx-auto mb-8">
+        <div className={`max-w-2xl mx-auto ${isAuthenticated ? 'mb-8' : 'mb-8'}`}>
           <SearchBar
             placeholder="What do you want to learn? (e.g., Guitar, Python, Spanish)"
             onSearch={handleSearch}
@@ -177,7 +180,16 @@ function CategoriesCarousel() {
           className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 -mx-4 px-4"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {categoryStats.map(({ name, count }) => {
+          {[
+            { name: 'Design', count: 120 },
+            { name: 'Code', count: 180 },
+            { name: 'Languages', count: 95 },
+            { name: 'Music', count: 75 },
+            { name: 'Cooking', count: 60 },
+            { name: 'Fitness', count: 55 },
+            { name: 'Arts', count: 70 },
+            { name: 'Business', count: 90 },
+          ].map(({ name, count }) => {
             const Icon = categoryIcons[name as SkillCategory];
             const gradient = categoryGradients[name as SkillCategory];
 
@@ -196,7 +208,7 @@ function CategoriesCarousel() {
                     </div>
                     <h3 className="font-semibold text-lg">{name}</h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {count * 15}+ people teaching
+                      {count}+ people teaching
                     </p>
                   </CardContent>
                 </Card>
@@ -269,18 +281,31 @@ function HowItWorks() {
 
 function TrustSection() {
   const stats = [
-    { value: `${platformStats.activeMembers}+`, label: 'Active Members', icon: Users },
-    { value: `${platformStats.skillsShared}+`, label: 'Skills Shared', icon: BookOpen },
-    { value: `${platformStats.averageRating}★`, label: 'Average Rating', icon: Star },
+    { value: '500+', label: 'Active Members', icon: Users },
+    { value: '1200+', label: 'Skills Shared', icon: BookOpen },
+    { value: '4.8★', label: 'Average Rating', icon: Star },
   ];
 
-  const testimonials = mockReviews.slice(0, 3).map((review, index) => {
-    const reviewer = mockUsers.find(u => u.id === review.reviewerId);
-    return {
-      ...review,
-      reviewer,
-    };
-  });
+  const testimonials = [
+    {
+      id: '1',
+      rating: 5,
+      comment: 'Amazing teacher! Very patient and knowledgeable.',
+      reviewer: { name: 'Sarah C.', avatar: undefined, location: { city: 'New York', country: 'USA' } },
+    },
+    {
+      id: '2',
+      rating: 5,
+      comment: 'Great experience, learned so much in just one session.',
+      reviewer: { name: 'Marcus J.', avatar: undefined, location: { city: 'London', country: 'UK' } },
+    },
+    {
+      id: '3',
+      rating: 4,
+      comment: 'Highly recommend! Clear explanations and fun to learn with.',
+      reviewer: { name: 'Emma W.', avatar: undefined, location: { city: 'Berlin', country: 'Germany' } },
+    },
+  ];
 
   return (
     <section id="testimonials" className="py-20 bg-muted/30">
@@ -368,15 +393,29 @@ function CTASection() {
 }
 
 export default function Home() {
+  const { isAuthenticated, initialized } = useAuthStore();
+
+  // Show nothing while auth is initializing to prevent flash
+  if (!initialized) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="animate-pulse text-muted-foreground">Loading...</div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-1">
         <HeroSection />
         <CategoriesCarousel />
-        <HowItWorks />
+        {!isAuthenticated && <HowItWorks />}
         <TrustSection />
-        <CTASection />
+        {!isAuthenticated && <CTASection />}
       </main>
       <Footer />
     </div>

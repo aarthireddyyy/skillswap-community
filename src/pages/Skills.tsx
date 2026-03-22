@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Header } from '@/components/layout/Header';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { SkillCard } from '@/components/common/SkillCard';
@@ -29,6 +30,7 @@ const skillSchema = z.object({
   category: z.enum(['Design', 'Code', 'Languages', 'Music', 'Cooking', 'Fitness', 'Arts', 'Business']),
   proficiency: z.enum(['Beginner', 'Intermediate', 'Expert']),
   description: z.string().min(10, 'Description must be at least 10 characters').max(500, 'Description must be less than 500 characters'),
+  type: z.enum(['teaching', 'learning']),
 });
 
 type SkillForm = z.infer<typeof skillSchema>;
@@ -36,7 +38,7 @@ type SkillForm = z.infer<typeof skillSchema>;
 export default function Skills() {
   const { toast } = useToast();
   const { user, updateUser } = useAuthStore();
-  const { mySkills, setSkills, addSkill, editSkill, deleteSkill } = useSkillsStore();
+  const { mySkills, fetchSkills, addSkill, editSkill, deleteSkill } = useSkillsStore();
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
@@ -49,17 +51,17 @@ export default function Skills() {
       category: 'Design',
       proficiency: 'Intermediate',
       description: '',
+      type: 'teaching',
     },
   });
 
   useEffect(() => {
-    // Initialize skills from user's skillsTeaching
-    if (user?.skillsTeaching && mySkills.length === 0) {
-      setSkills(user.skillsTeaching);
+    if (user?.id) {
+      fetchSkills(user.id).finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
     }
-    const timer = setTimeout(() => setIsLoading(false), 600);
-    return () => clearTimeout(timer);
-  }, [user, setSkills, mySkills.length]);
+  }, [user?.id, fetchSkills]);
 
   const openAddDialog = () => {
     setEditingSkill(null);
@@ -68,6 +70,7 @@ export default function Skills() {
       category: 'Design',
       proficiency: 'Intermediate',
       description: '',
+      type: 'teaching',
     });
     setIsDialogOpen(true);
   };
@@ -79,17 +82,13 @@ export default function Skills() {
       category: skill.category,
       proficiency: skill.proficiency,
       description: skill.description,
+      type: skill.type || 'teaching',
     });
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (skill: Skill) => {
-    deleteSkill(skill.id);
-    if (user) {
-      updateUser({
-        skillsTeaching: user.skillsTeaching.filter(s => s.id !== skill.id),
-      });
-    }
+  const handleDelete = async (skill: Skill) => {
+    await deleteSkill(skill.id);
     toast({
       title: 'Skill deleted',
       description: `"${skill.name}" has been removed from your skills.`,
@@ -98,36 +97,22 @@ export default function Skills() {
 
   const onSubmit = async (data: SkillForm) => {
     setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
 
     if (editingSkill) {
-      editSkill(editingSkill.id, data);
-      if (user) {
-        updateUser({
-          skillsTeaching: user.skillsTeaching.map(s =>
-            s.id === editingSkill.id ? { ...s, ...data } : s
-          ),
-        });
-      }
+      await editSkill(editingSkill.id, data);
       toast({
         title: 'Skill updated',
         description: `"${data.name}" has been updated.`,
       });
     } else {
-      const newSkill = addSkill({
+      await addSkill({
         name: data.name,
         category: data.category,
         proficiency: data.proficiency,
         description: data.description,
         userId: user?.id || '',
+        type: data.type,
       });
-      if (user) {
-        updateUser({
-          skillsTeaching: [...user.skillsTeaching, newSkill],
-        });
-      }
       toast({
         title: 'Skill added',
         description: `"${data.name}" has been added to your skills.`,
@@ -170,31 +155,72 @@ export default function Skills() {
         </div>
 
         {/* Skills Grid */}
-        {mySkills.length > 0 ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {mySkills.map(skill => (
-              <SkillCard
-                key={skill.id}
-                skill={skill}
-                showActions
-                onEdit={openEditDialog}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="py-12">
-              <EmptyState
-                icon={Plus}
-                title="No skills yet"
-                description="Add skills you can teach to start matching with people who want to learn from you."
-                actionLabel="Add Your First Skill"
-                onAction={openAddDialog}
-              />
-            </CardContent>
-          </Card>
-        )}
+        <Tabs defaultValue="teaching">
+          <TabsList>
+            <TabsTrigger value="teaching">
+              Skills I Teach ({mySkills.filter(s => s.type === 'teaching' || !s.type).length})
+            </TabsTrigger>
+            <TabsTrigger value="learning">
+              Skills I Want to Learn ({mySkills.filter(s => s.type === 'learning').length})
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="teaching">
+            {mySkills.filter(s => s.type === 'teaching' || !s.type).length > 0 ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {mySkills.filter(s => s.type === 'teaching' || !s.type).map(skill => (
+                  <SkillCard
+                    key={skill.id}
+                    skill={skill}
+                    showActions
+                    onEdit={openEditDialog}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-12">
+                  <EmptyState
+                    icon={Plus}
+                    title="No teaching skills yet"
+                    description="Add skills you can teach to start matching with people who want to learn from you."
+                    actionLabel="Add Teaching Skill"
+                    onAction={openAddDialog}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="learning">
+            {mySkills.filter(s => s.type === 'learning').length > 0 ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {mySkills.filter(s => s.type === 'learning').map(skill => (
+                  <SkillCard
+                    key={skill.id}
+                    skill={skill}
+                    showActions
+                    onEdit={openEditDialog}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-12">
+                  <EmptyState
+                    icon={Plus}
+                    title="No learning skills yet"
+                    description="Add skills you want to learn to find people who can teach you."
+                    actionLabel="Add Learning Skill"
+                    onAction={openAddDialog}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
 
         {/* Add/Edit Dialog */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -219,6 +245,28 @@ export default function Skills() {
                       <FormControl>
                         <Input {...field} placeholder="e.g., Guitar, Python, Spanish" />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Skill Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="teaching">I can teach this</SelectItem>
+                          <SelectItem value="learning">I want to learn this</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

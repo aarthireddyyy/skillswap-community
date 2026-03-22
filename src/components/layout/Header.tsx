@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, Bell, User, LogOut, Settings, ChevronDown, Repeat } from 'lucide-react';
+import { format } from 'date-fns';
+import { Search, Bell, User, LogOut, Settings, ChevronDown, Repeat, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -13,7 +14,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/authStore';
 import { useSwapsStore } from '@/store/swapsStore';
-import { useState } from 'react';
+import { useNotificationStore } from '@/store/notificationStore';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 export function Header() {
@@ -22,9 +24,17 @@ export function Header() {
   const { toast } = useToast();
   const { user, isAuthenticated, logout } = useAuthStore();
   const { getPendingCount } = useSwapsStore();
+  const { notifications, fetchNotifications, unreadCount, markAsRead, markAllAsRead } = useNotificationStore();
   const [searchQuery, setSearchQuery] = useState('');
 
   const pendingCount = user ? getPendingCount(user.id) : 0;
+  const notifCount = unreadCount();
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchNotifications(user.id);
+    }
+  }, [user?.id, fetchNotifications]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +50,23 @@ export function Header() {
       description: 'You have been successfully logged out.',
     });
     navigate('/');
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+    
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    if (diffInDays === 1) return '1d ago';
+    if (diffInDays < 7) return `${diffInDays}d ago`;
+    if (diffInDays < 30) return `${Math.floor(diffInDays / 7)}w ago`;
+    return format(date, 'MMM d, yyyy');
   };
 
   const getInitials = (name: string) => {
@@ -114,12 +141,63 @@ export function Header() {
           {isAuthenticated ? (
             <>
               {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
-                  2
-                </span>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    {notifCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
+                        {notifCount > 9 ? '9+' : notifCount}
+                      </span>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-y-auto">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <p className="text-sm font-semibold">Notifications</p>
+                    {notifCount > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto px-2 py-1 text-xs text-muted-foreground"
+                        onClick={markAllAsRead}
+                      >
+                        <Check className="h-3 w-3 mr-1" />
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
+                  <DropdownMenuSeparator />
+                  {notifications.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      No notifications yet
+                    </div>
+                  ) : (
+                    notifications.slice(0, 10).map((notif) => (
+                      <DropdownMenuItem
+                        key={notif.id}
+                        className={`px-3 py-2.5 cursor-pointer flex flex-col items-start gap-0.5 ${
+                          !notif.read ? 'bg-primary/5' : ''
+                        }`}
+                        onClick={() => {
+                          markAsRead(notif.id);
+                          navigate('/swaps');
+                        }}
+                      >
+                        <span className="text-sm leading-snug">
+                          {!notif.read && (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 align-middle" />
+                          )}
+                          {notif.message}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {formatTimeAgo(notif.createdAt)}
+                        </span>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* User Menu */}
               <DropdownMenu>
@@ -145,7 +223,7 @@ export function Header() {
                     <User className="mr-2 h-4 w-4" />
                     View Profile
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/profile')}>
+                  <DropdownMenuItem onClick={() => navigate('/settings')}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
